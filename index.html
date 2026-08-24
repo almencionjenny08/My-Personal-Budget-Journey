@@ -1250,6 +1250,19 @@
                         <input type="date" id="debt-due-date" required class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none ring-brand">
                     </div>
                 </div>
+
+                <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="debt-two-payments" onchange="toggleDebtSecondPayment()" class="w-4 h-4 text-brand rounded focus:ring-brand">
+                        <span class="text-sm font-bold text-amber-900">2 payments per month</span>
+                    </label>
+                    <p class="text-[11px] text-amber-700 mt-1">Use this when the debt is paid twice in the same month (for example, every 15th and 30th).</p>
+                    <div id="debt-second-payment-wrap" class="hidden mt-3">
+                        <label class="block text-xs font-semibold text-amber-800 uppercase mb-1">Second Due Date</label>
+                        <input type="date" id="debt-second-due-date" class="w-full px-3.5 py-2.5 bg-white border border-amber-200 rounded-xl text-sm focus:outline-none ring-brand">
+                    </div>
+                </div>
+
                 <div>
                     <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Interest Rate (% APR)</label>
                     <input type="number" step="0.01" min="0" id="debt-apr" value="0" placeholder="0" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none ring-brand">
@@ -3464,7 +3477,7 @@
                                         <div class="flex items-start justify-between gap-3">
                                             <div>
                                                 <h5 class="font-bold text-slate-900 text-sm">${escapeHtml(d.name)}</h5>
-                                                <p class="text-[10px] text-slate-400 font-medium">Due Date: Every ${new Date(d.dueDate).getDate()}th of the month</p>
+                                                <p class="text-[10px] text-slate-400 font-medium">${d.twoPaymentsPerMonth && d.secondDueDate ? `2 Payments/Month: ${new Date(d.dueDate).getDate()}th & ${new Date(d.secondDueDate).getDate()}th` : `Due Date: Every ${new Date(d.dueDate).getDate()}th of the month`}</p>
                                             </div>
                                             <span class="text-[10px] font-bold text-amber-600 whitespace-nowrap">${formatCurrency(remaining)} left</span>
                                         </div>
@@ -3479,8 +3492,9 @@
                                     </div>
                                     <div class="loan-action-row md:w-56 flex flex-col sm:flex-row md:flex-col items-stretch md:items-end justify-between gap-2">
                                         <div class="text-center px-3">
-                                            <span class="text-[9px] uppercase font-bold text-slate-400 block">Monthly</span>
-                                            <span class="text-sm font-bold text-amber-600">${formatCurrency(monthly)}</span>
+                                            <span class="text-[9px] uppercase font-bold text-slate-400 block">${d.twoPaymentsPerMonth ? 'Per Payment' : 'Monthly'}</span>
+                                            <span class="text-sm font-bold text-amber-600">${formatCurrency(d.twoPaymentsPerMonth ? monthly / 2 : monthly)}</span>
+                                            ${d.twoPaymentsPerMonth ? `<span class="text-[9px] text-slate-400 block">Total/mo: ${formatCurrency(monthly)}</span>` : ''}
                                         </div>
                                         <div class="loan-action-buttons">
                                             <button onclick="openPayDebtModal('${d.id}')" class="final-action-icon action-collect" title="Pay Now" aria-label="Pay Now"><i class="fa-solid fa-money-bill-transfer"></i></button>
@@ -3507,9 +3521,9 @@
                 <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
                     <div>
                         <span class="font-bold text-xs text-slate-800 block">${escapeHtml(d.loanType || 'Other')} • ${escapeHtml(d.name)}</span>
-                        <span class="text-[10px] text-slate-500">Day ${new Date(d.dueDate).getDate()}</span>
+                        <span class="text-[10px] text-slate-500">${d.twoPaymentsPerMonth && d.secondDueDate ? `Days ${new Date(d.dueDate).getDate()} & ${new Date(d.secondDueDate).getDate()}` : `Day ${new Date(d.dueDate).getDate()}`}</span>
                     </div>
-                    <span class="font-bold text-xs text-amber-600">${formatCurrency(d.monthly || (d.total/d.months))}</span>
+                    <span class="font-bold text-xs text-amber-600">${formatCurrency(d.monthly || (d.total/d.months))}${d.twoPaymentsPerMonth ? ' / mo' : ''}</span>
                 </div>
             `).join('');
         }
@@ -3978,6 +3992,50 @@
             showToast('Goal created!', 'success');
         }
 
+        function toggleDebtSecondPayment() {
+            const checkbox = document.getElementById('debt-two-payments');
+            const wrap = document.getElementById('debt-second-payment-wrap');
+            const input = document.getElementById('debt-second-due-date');
+            if(!checkbox || !wrap) return;
+            wrap.classList.toggle('hidden', !checkbox.checked);
+            if(input) {
+                input.required = checkbox.checked;
+                if(checkbox.checked && !input.value) {
+                    const first = document.getElementById('debt-due-date')?.value;
+                    if(first) {
+                        const d = new Date(first + 'T00:00:00');
+                        d.setDate(Math.min(d.getDate() + 15, new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()));
+                        input.value = d.toISOString().split('T')[0];
+                    }
+                }
+            }
+        }
+
+        function getDebtPaymentDates(debt, year, month) {
+            const dates = [];
+            const firstValue = debt?.dueDate;
+            if(!firstValue) return dates;
+            const firstOriginal = new Date(firstValue + 'T00:00:00');
+            if(Number.isNaN(firstOriginal.getTime())) return dates;
+            const lastDay = new Date(year, month + 1, 0).getDate();
+            const firstDay = Math.min(firstOriginal.getDate(), lastDay);
+            dates.push(new Date(year, month, firstDay));
+
+            if(debt.twoPaymentsPerMonth && debt.secondDueDate) {
+                const secondOriginal = new Date(debt.secondDueDate + 'T00:00:00');
+                if(!Number.isNaN(secondOriginal.getTime())) {
+                    const secondDay = Math.min(secondOriginal.getDate(), lastDay);
+                    dates.push(new Date(year, month, secondDay));
+                }
+            }
+            return dates.sort((a,b) => a-b);
+        }
+
+        function getDebtPaymentAmount(debt) {
+            const monthly = parseFloat(debt.monthly) || ((parseFloat(debt.total)||0) / Math.max(1, parseInt(debt.months)||1));
+            return debt.twoPaymentsPerMonth ? monthly / 2 : monthly;
+        }
+
         function handleDebtSubmit(e) {
             e.preventDefault();
             const debt = {
@@ -3989,6 +4047,8 @@
                 monthly: parseFloat(document.getElementById('debt-monthly').value),
                 paid: 0,
                 dueDate: document.getElementById('debt-due-date').value,
+                twoPaymentsPerMonth: document.getElementById('debt-two-payments')?.checked || false,
+                secondDueDate: document.getElementById('debt-second-due-date')?.value || '',
                 apr: parseFloat(document.getElementById('debt-apr').value) || 0,
                 history: []
             };
@@ -3996,6 +4056,7 @@
             saveState();
             closeModal('debtModal');
             document.getElementById('debtForm').reset();
+            if(document.getElementById('debt-second-payment-wrap')) document.getElementById('debt-second-payment-wrap').classList.add('hidden');
             renderDebt();
             showToast('Debt account added!', 'success');
         }
@@ -4174,12 +4235,19 @@
             (state.debts || []).forEach(d => {
                 const remaining = Math.max(0, (parseFloat(d.total) || 0) - (parseFloat(d.paid) || 0));
                 if(remaining <= 0) return;
-                const due = getNextMonthlyDueDate(d.dueDate, today);
+                const monthly = parseFloat(d.monthly) || ((parseFloat(d.total) || 0) / Math.max(1, parseInt(d.months) || 1));
+                let due = getNextMonthlyDueDate(d.dueDate, today);
+                let amount = d.twoPaymentsPerMonth ? monthly / 2 : monthly;
+                if(d.twoPaymentsPerMonth && d.secondDueDate) {
+                    const candidates = getDebtPaymentDates(d, today.getFullYear(), today.getMonth()).filter(x => x >= new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+                    const nextMonth = getDebtPaymentDates(d, today.getFullYear(), today.getMonth()+1);
+                    const all = candidates.concat(nextMonth);
+                    if(all.length) due = all.sort((a,b)=>a-b)[0];
+                }
                 if(!due) return;
                 items.push({
                     type: 'debt', id: d.id, label: 'Debt', name: d.name || 'Debt',
-                    loanType: d.loanType || '', dueDate: due,
-                    amount: parseFloat(d.monthly) || ((parseFloat(d.total) || 0) / Math.max(1, parseInt(d.months) || 1))
+                    loanType: d.loanType || '', dueDate: due, amount
                 });
             });
 
@@ -4386,48 +4454,92 @@
                 </div>
             `;
 
-            for(let i = 0; i < duration; i++) {
-                const d = new Date(start);
-                d.setMonth(d.getMonth() + i);
+            if(type === 'debt' && item.twoPaymentsPerMonth && item.secondDueDate) {
+                const perPayment = monthly / 2;
+                for(let i = 0; i < duration; i++) {
+                    const monthDate = new Date(start);
+                    monthDate.setDate(1);
+                    monthDate.setMonth(monthDate.getMonth() + i);
+                    const dates = getDebtPaymentDates(item, monthDate.getFullYear(), monthDate.getMonth());
 
-                // Treat payments cumulatively: once collected payments cover this
-                // installment, this month is marked paid. Partial coverage is amber.
-                const beforeInstallment = Math.max(0, monthly * i);
-                const afterInstallment = monthly * (i + 1);
-                const paidForThisInstallment = Math.max(
-                    0,
-                    Math.min(monthly, totalCollected - beforeInstallment)
-                );
+                    dates.forEach((d, paymentIndex) => {
+                        const installmentIndex = i * 2 + paymentIndex;
+                        const beforeInstallment = perPayment * installmentIndex;
+                        const afterInstallment = perPayment * (installmentIndex + 1);
+                        const paidForThisInstallment = Math.max(0, Math.min(perPayment, totalCollected - beforeInstallment));
 
-                let statusClass = 'schedule-due';
-                let statusText = 'DUE';
-                let icon = '<i class="fa-regular fa-circle"></i>';
+                        let statusClass = 'schedule-due';
+                        let statusText = 'DUE';
+                        let icon = '<i class="fa-regular fa-circle"></i>';
+                        if(paidForThisInstallment >= perPayment - 0.005) {
+                            statusClass = 'schedule-paid';
+                            statusText = 'PAID';
+                            icon = '<i class="fa-solid fa-circle-check"></i>';
+                        } else if(paidForThisInstallment > 0) {
+                            statusClass = 'schedule-partial';
+                            statusText = 'PARTIAL';
+                            icon = '<i class="fa-solid fa-hourglass-half"></i>';
+                        }
 
-                if (paidForThisInstallment >= monthly - 0.005) {
-                    statusClass = 'schedule-paid';
-                    statusText = type === 'debt' ? 'PAID' : 'COLLECTED';
-                    icon = '<i class="fa-solid fa-circle-check"></i>';
-                } else if (paidForThisInstallment > 0) {
-                    statusClass = 'schedule-partial';
-                    statusText = 'PARTIAL';
-                    icon = '<i class="fa-solid fa-hourglass-half"></i>';
+                        scheduleHTML += `
+                            <div class="schedule-row ${statusClass} p-3 rounded-xl border flex justify-between items-center mb-2">
+                                <div class="flex items-center gap-3">
+                                    <div class="schedule-icon">${icon}</div>
+                                    <div class="flex flex-col">
+                                        <span class="text-xs font-bold">Payment ${installmentIndex + 1} <span class="text-[9px] text-slate-400">(${paymentIndex + 1}/2)</span></span>
+                                        <span class="schedule-date text-[10px]">${d.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})}</span>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <span class="block font-bold text-sm">${formatCurrency(perPayment)}</span>
+                                    <span class="text-[9px] font-extrabold tracking-wide">${statusText}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
                 }
+            } else {
+                for(let i = 0; i < duration; i++) {
+                    const d = new Date(start);
+                    d.setMonth(d.getMonth() + i);
 
-                scheduleHTML += `
-                    <div class="schedule-row ${statusClass} p-3 rounded-xl border flex justify-between items-center mb-2">
-                        <div class="flex items-center gap-3">
-                            <div class="schedule-icon">${icon}</div>
-                            <div class="flex flex-col">
-                                <span class="text-xs font-bold">${type === 'debt' ? 'Payment' : 'Collection'} ${i + 1}</span>
-                                <span class="schedule-date text-[10px]">${d.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})}</span>
+                    const beforeInstallment = monthly * i;
+                    const afterInstallment = monthly * (i + 1);
+                    const paidForThisInstallment = Math.max(
+                        0,
+                        Math.min(monthly, totalCollected - beforeInstallment)
+                    );
+
+                    let statusClass = 'schedule-due';
+                    let statusText = 'DUE';
+                    let icon = '<i class="fa-regular fa-circle"></i>';
+
+                    if (paidForThisInstallment >= monthly - 0.005) {
+                        statusClass = 'schedule-paid';
+                        statusText = type === 'debt' ? 'PAID' : 'COLLECTED';
+                        icon = '<i class="fa-solid fa-circle-check"></i>';
+                    } else if (paidForThisInstallment > 0) {
+                        statusClass = 'schedule-partial';
+                        statusText = 'PARTIAL';
+                        icon = '<i class="fa-solid fa-hourglass-half"></i>';
+                    }
+
+                    scheduleHTML += `
+                        <div class="schedule-row ${statusClass} p-3 rounded-xl border flex justify-between items-center mb-2">
+                            <div class="flex items-center gap-3">
+                                <div class="schedule-icon">${icon}</div>
+                                <div class="flex flex-col">
+                                    <span class="text-xs font-bold">${type === 'debt' ? 'Payment' : 'Collection'} ${i + 1}</span>
+                                    <span class="schedule-date text-[10px]">${d.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})}</span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="block font-bold text-sm">${formatCurrency(monthly)}</span>
+                                <span class="text-[9px] font-extrabold tracking-wide">${statusText}</span>
                             </div>
                         </div>
-                        <div class="text-right">
-                            <span class="block font-bold text-sm">${formatCurrency(monthly)}</span>
-                            <span class="text-[9px] font-extrabold tracking-wide">${statusText}</span>
-                        </div>
-                    </div>
-                `;
+                    `;
+                }
             }
 
             body.innerHTML = scheduleHTML;
